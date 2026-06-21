@@ -401,6 +401,7 @@ gpr_normative/
 ## Citation
 
 If you use this toolkit in your research, please cite the relevant scikit-learn Gaussian Process documentation:
+> Wei, Y. et al. MacaSurfer: unified surface-volume mapping of the macaque brain across the lifespan. 2026.06.14.732101 Preprint at https://doi.org/10.64898/2026.06.14.732101 (2026).
 
 > Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in Python. *Journal of Machine Learning Research*, 12, 2825–2830.
 
