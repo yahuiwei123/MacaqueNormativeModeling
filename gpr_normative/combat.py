@@ -116,7 +116,7 @@ def harmonize_csv(
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        _, data_adj = harmonizationLearn(brain_data, covars, smooth_terms=["AGE"])
+        model, data_adj = harmonizationLearn(brain_data, covars, smooth_terms=["AGE"])
 
     df_output = df_valid.copy()
     for i, col in enumerate(brain_cols):
@@ -129,7 +129,13 @@ def harmonize_csv(
 
     out_path = output_dir / csv_path.name
     df_output.to_csv(out_path, index=False)
+
+    # Save ComBat model for future harmonization of new data
+    import joblib
+    model_path = output_dir / (csv_path.stem + "_combat_model.joblib")
+    joblib.dump(model, model_path)
     print(f"  Saved: {out_path}")
+    print(f"  Model: {model_path}")
     return out_path
 
 
@@ -146,8 +152,11 @@ def harmonize_directory(
     input_dir = Path(input_dir).expanduser().resolve()
     results = []
     csv_files = sorted(input_dir.rglob(pattern))
-    # Exclude already-harmonized files
-    csv_files = [f for f in csv_files if "harmonized" not in f.parts]
+    # Exclude site-mri-3.csv and already-harmonized files
+    csv_files = [
+        f for f in csv_files
+        if "site-mri-3" not in f.name and "harmonized" not in str(f)
+    ]
 
     print(f"Found {len(csv_files)} CSV files to harmonize in {input_dir}")
     print("=" * 60)
