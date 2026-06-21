@@ -1,7 +1,10 @@
 """
-Predict deviations (mu, std, resid, z-score) using trained GPR models.
+Predict deviations (mu, std, resid, z-score) using trained models.
 
-Loads trained .joblib models and applies them to new subject data.
+Supports two model types (auto-detected):
+  1. BLR (pcntoolkit): model_dir contains model/normative_model.json
+  2. GPR (sklearn): model_dir contains *.joblib files
+
 Outputs per-score prediction CSVs and a merged wide table.
 """
 
@@ -100,9 +103,58 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df = load_many([in_path], args.pattern)
-
     if args.fill_missing:
         df = fill_missing_confounds(df)
+
+    # Auto-detect model type
+    is_blr = (model_dir / "model" / "normative_model.json").exists()
+    has_joblib = len(list(model_dir.rglob("*.joblib"))) > 0
+
+    if is_blr:
+        print(f"Detected BLR models (pcntoolkit) at: {model_dir}")
+        try:
+            from .blr_predict import predict_blr_models as blr_predict
+        except ImportError:
+            from gpr_normative.blr_predict import predict_blr_models as blr_predict
+
+        try:
+            result = blr_predict(model_dir, df)
+        except ModuleNotFoundError as e:
+            if "pcntoolkit" in str(e):
+                raise SystemExit(
+                    "pcntoolkit is required for BLR model prediction.\n"
+                    "Install with: pip install pcntoolkit\n"
+                    "Note: pcntoolkit requires Python 3.10-3.12."
+                )
+            raise
+        pred_df = result["predictions"]
+        pred_df.to_csv(out_dir / "predictions_long.csv", index=False)
+        result["summary"].to_csv(out_dir / "predict_summary.csv", index=False)
+
+        # Also create wide format
+        wide_cols = ["subject_id", "roi", "predicted_mu", "z_score", "residual"]
+        wide_cols = [c for c in wide_cols if c in pred_df.columns]
+        wide = pred_df[wide_cols].pivot_table(
+            index="subject_id", columns="roi", aggfunc="first"
+        )
+        wide.columns = [f"{col[1]}__{col[0].replace('predicted_mu','mu').replace('z_score','z')}"
+                        for col in wide.columns]
+        wide = wide.reset_index()
+        wide.to_csv(out_dir / "predictions_merged_wide.csv", index=False)
+
+        print(f"[OK] BLR Predictions written to: {out_dir}")
+        return
+
+    if not has_joblib:
+        raise SystemExit(
+            f"No models found in: {model_dir}\n"
+            "Expected either:\n"
+            "  - BLR: model/normative_model.json (pcntoolkit)\n"
+            "  - GPR: *.joblib files (sklearn)\n"
+            "Use --blr_model_dir for BLR models or provide GPR .joblib directory."
+        )
+
+    print(f"Detected GPR models (sklearn) at: {model_dir}")
 
     conf_num = ["age"]
     conf_cat = ["sex", "site", "breed"]
