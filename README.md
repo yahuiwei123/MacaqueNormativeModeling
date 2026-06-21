@@ -174,16 +174,35 @@ python -m gpr_normative.evaluate \
 
 Apply trained models to new subjects to compute deviation scores.
 
+The `predict.py` module **auto-detects** model type:
+- **BLR** (pcntoolkit): directory containing `model/normative_model.json`
+- **GPR** (sklearn): directory containing `*.joblib` files
+
 ```bash
+# Predict with pretrained BLR models (from MacaqueGPR project)
 python -m gpr_normative.predict \
-    --in_path <csv_or_directory> \
-    --model_dir <path/to/trained/models> \
-    --out_dir <output_directory> \
-    [--fill_missing] \
-    [--pattern "*.csv"]
+    --in_path new_subjects.csv \
+    --model_dir path/to/M129/L/thickness \
+    --out_dir results/predictions
+
+# Predict with GPR models (from quick start training)
+python -m gpr_normative.predict \
+    --in_path new_subjects.csv \
+    --model_dir results/quickstart/models \
+    --out_dir results/predictions
 ```
 
-**Outputs:**
+> **Note**: BLR prediction requires `pcntoolkit` (Python 3.10-3.12): `pip install pcntoolkit`
+
+**Outputs (BLR):**
+```
+out_dir/
+├── predictions.csv                  # Long format: subject_id, roi, predicted_mu, z_score, residual
+├── predictions_wide.csv             # Wide format: one row per subject, columns per ROI
+└── predict_summary.csv              # Per-ROI status
+```
+
+**Outputs (GPR):**
 ```
 out_dir/
 ├── predictions/
@@ -195,6 +214,37 @@ out_dir/
 ```
 
 The z-score is the key metric: **|z| > 1.96** indicates a statistically significant deviation from the normative range (p < 0.05, two-tailed).
+
+### Pretrained Models
+
+The 2,942 normative models from the MacaqueGPR project are available on Hugging Face Hub.
+
+```bash
+# Install downloader
+pip install huggingface_hub
+
+# Download all models (~7.6 GB)
+python -m gpr_normative.model_hub \
+    --repo_id yahuiwei123/MacaqueGPR-models \
+    --local_dir ./blr_models
+```
+
+Or from Python:
+```python
+from gpr_normative.model_hub import download_models
+path = download_models("yahuiwei123/MacaqueGPR-models", "./models")
+```
+
+Model directory structure after download:
+```
+blr_models/
+├── M129/L/{thickness,cortvol,curvature,sulc,area}/   # 80 ROIs each
+├── M132/...                                           # 92 ROIs each
+├── MBNA124/...                                        # 124 ROIs each
+├── Modalities/...                                     # 9-18 ROIs each
+├── subcort/...                                        # 15 structures each
+└── optimal_parameters_summary.csv
+```
 
 ### Fine-Tuning
 
