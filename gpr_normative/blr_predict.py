@@ -55,6 +55,10 @@ def predict_blr_models(
 
     # Load the normative model wrapper
     nm = NormativeModel.load(str(model_dir))
+    # Disable evaluation and result saving during prediction
+    nm.evaluate_model = False
+    nm.saveresults = False
+    nm.saveplots = False
 
     response_vars = nm.response_vars
     if roi_names is not None:
@@ -70,18 +74,41 @@ def predict_blr_models(
     if hasattr(nm, 'unique_batch_effects') and nm.unique_batch_effects:
         batch_effects = list(nm.unique_batch_effects.keys())
 
-    # Ensure required columns exist
-    required_cols = covariates + batch_effects + response_vars
+    # Build case-insensitive column map for response_vars
+    col_lower_map = {c.lower(): c for c in df.columns}
     df_filtered = df.copy()
-    for c in required_cols:
-        if c not in df_filtered.columns:
-            if c in covariates:
-                raise ValueError(f"Missing covariate column: {c}")
-            # Missing ROI column: add NaN
-            df_filtered[c] = np.nan
+
+    # Map response_vars to actual dataframe column names (case insensitive)
+    actual_response_vars = []
+    for rv in response_vars:
+        if rv in df_filtered.columns:
+            actual_response_vars.append(rv)
+        elif rv.lower() in col_lower_map:
+            actual_name = col_lower_map[rv.lower()]
+            # Rename column to match model's expected name
+            df_filtered = df_filtered.rename(columns={actual_name: rv})
+            actual_response_vars.append(rv)
+        else:
+            df_filtered[rv] = np.nan
+            actual_response_vars.append(rv)
+
+    # Map covariates similarly
+    actual_covariates = []
+    for cv in covariates:
+        if cv in df_filtered.columns:
+            actual_covariates.append(cv)
+        elif cv.lower() in col_lower_map:
+            actual_name = col_lower_map[cv.lower()]
+            df_filtered = df_filtered.rename(columns={actual_name: cv})
+            actual_covariates.append(cv)
+        else:
+            raise ValueError(f"Missing covariate column: {cv}")
+
+    # Ensure required columns exist
+    required_cols = actual_covariates + batch_effects + actual_response_vars
 
     # Drop rows with NaN in covariates/batch effects
-    df_filtered = df_filtered.dropna(subset=covariates + batch_effects)
+    df_filtered = df_filtered.dropna(subset=actual_covariates + batch_effects)
 
     if len(df_filtered) == 0:
         raise ValueError("No valid rows after filtering NaN covariates")
@@ -90,10 +117,12 @@ def predict_blr_models(
     norm_data = NormData.from_dataframe(
         name="predict_data",
         dataframe=df_filtered,
-        covariates=covariates,
+        covariates=actual_covariates,
         batch_effects=batch_effects,
-        response_vars=response_vars,
+        response_vars=actual_response_vars,
     )
+    response_vars = actual_response_vars
+    covariates = actual_covariates
 
     # Predict
     with warnings.catch_warnings():
