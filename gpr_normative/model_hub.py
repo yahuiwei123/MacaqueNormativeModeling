@@ -5,18 +5,18 @@ Supports both BLR (pcntoolkit JSON) and GPR (sklearn joblib) model formats.
 
 Usage:
   # Download all BLR models
-  python -m gpr_normative.model_hub --repo_id yahuiwei123/MacaqueGPR-models --local_dir ./blr_models
+  python -m gpr_normative.model_hub --repo_id yhwei/MacaqueNormative-models --local_dir ./blr_models
 
   # From Python
   from gpr_normative.model_hub import download_models
-  path = download_models("yahuiwei123/MacaqueGPR-models", "./models")
+  path = download_models("yhwei/MacaqueNormative-models", "./models")
 """
 
 import os
 from pathlib import Path
 
 
-def download_models(repo_id: str = "yahuiwei123/MacaqueGPR-models", local_dir: str | None = None):
+def download_models(repo_id: str = "yhwei/MacaqueNormative-models", local_dir: str | None = None):
     """
     Download pretrained normative models from Hugging Face Hub.
 
@@ -63,7 +63,7 @@ def download_models(repo_id: str = "yahuiwei123/MacaqueGPR-models", local_dir: s
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="Download pretrained normative models")
-    ap.add_argument("--repo_id", type=str, default="yahuiwei123/MacaqueGPR-models")
+    ap.add_argument("--repo_id", type=str, default="yhwei/MacaqueNormative-models")
     ap.add_argument("--local_dir", type=str, default=None)
     args = ap.parse_args()
     download_models(args.repo_id, args.local_dir)
