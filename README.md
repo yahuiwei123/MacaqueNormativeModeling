@@ -1,4 +1,4 @@
-# MacaqueGPR — BLR Normative Modeling Toolkit
+# Macaque BLR Normative Modeling Toolkit
 
 Bayesian Linear Regression (BLR) toolkit for normative modeling of brain structural MRI data. Trains normative models with B-spline basis functions on healthy subjects, evaluates via cross-validation, and predicts deviation z-scores for new subjects.
 
