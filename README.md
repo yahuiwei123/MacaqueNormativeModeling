@@ -22,6 +22,7 @@ normally use the `full_data_model` version.
 - [Pipeline Overview](#pipeline-overview)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Examples](#examples)
 - [Data Format](#data-format)
 - [Usage](#usage)
   - [Step 1: Inspect Data and Models](#step-1-inspect-data-and-models)
@@ -163,6 +164,31 @@ monkey-norm predict \
   --csv user_input.csv \
   --out-dir results/predictions/finetuned_MBNA124_L_thickness
 ```
+
+## Examples
+
+The repository includes a runnable PRIME-DE OHSU example:
+
+```text
+examples/site-ohsu/
+├── merged_stats/                  # copied OHSU wide-format CSVs
+├── README.md                      # step-by-step fine-tune and predict guide
+└── run_finetune_predict.sh        # complete runnable workflow
+```
+
+Run it from the repository root:
+
+```bash
+PYTHON_BIN=/home/weiyahui/software/anaconda3/envs/pcnnorm/bin/python \
+SAVE_DIR=/home/weiyahui/projects/Monkey_Surface/experiments/statistic/scripts/postprocess/resources/blr/save_dir \
+bash examples/site-ohsu/run_finetune_predict.sh
+```
+
+The example exports a model input template, predicts deviations with the
+pretrained `full_data_model`, fine-tunes `Modalities/R/thickness` on the OHSU
+data, and predicts deviations again with the fine-tuned model. See
+[`examples/site-ohsu/README.md`](examples/site-ohsu/README.md) for output file
+descriptions.
 
 ## Data Format
 

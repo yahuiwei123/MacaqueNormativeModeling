@@ -51,6 +51,10 @@ def create_bspline_basis(age_data, nknots: int, degree: int, adaptive_knots: boo
         age_min = age_data.min()
         age_max = age_data.max()
         age_range = age_max - age_min
+        if age_range <= 1e-8:
+            width = max(abs(age_min) * 0.05, 1.0)
+            knots = np.linspace(age_min - width, age_max + width, int(nknots) + 2)
+            return BsplineBasisFunction(degree=int(degree), knots=knots)
         knots = np.quantile(age_data, np.linspace(0, 1, int(nknots) + 2))
         knots[0] = age_min - 0.05 * age_range
         knots[-1] = age_max + 0.05 * age_range

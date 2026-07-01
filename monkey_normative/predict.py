@@ -260,6 +260,11 @@ def fine_tune_model(
         source, nknots, degree, heteroskedastic
     )
     basis = create_bspline_basis(df[covariates[0]].values, use_nknots, use_degree, True)
+    constant_covariates = [
+        col for col in covariates
+        if pd.to_numeric(df[col], errors="coerce").nunique(dropna=True) <= 1
+    ]
+    inscaler = "none" if constant_covariates else "standardize"
     blr = BLR(
         name="finetuned_blr",
         basis_function_mean=basis,
@@ -283,7 +288,7 @@ def fine_tune_model(
         saveresults=True,
         saveplots=saveplots,
         save_dir=str(out_dir),
-        inscaler="standardize",
+        inscaler=inscaler,
         outscaler="standardize",
     )
     with warnings.catch_warnings():
@@ -307,6 +312,8 @@ def fine_tune_model(
                 "nknots": use_nknots,
                 "degree": use_degree,
                 "heteroskedastic": use_hetero,
+                "inscaler": inscaler,
+                "constant_covariates": constant_covariates,
             },
             f,
             indent=2,
