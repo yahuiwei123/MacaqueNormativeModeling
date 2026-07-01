@@ -22,6 +22,7 @@ normally use the `full_data_model` version.
 - [Pipeline Overview](#pipeline-overview)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Download Pretrained Models](#download-pretrained-models)
 - [Examples](#examples)
 - [Data Format](#data-format)
 - [Usage](#usage)
@@ -163,6 +164,98 @@ monkey-norm predict \
   --model-dir results/finetuned/MBNA124_L_thickness \
   --csv user_input.csv \
   --out-dir results/predictions/finetuned_MBNA124_L_thickness
+```
+
+## Download Pretrained Models
+
+Pretrained BLR model parameters are distributed through Hugging Face Hub:
+
+```text
+yahuiwei123/MacaqueNormative-models
+```
+
+Install the Hugging Face client if it is not already available:
+
+```bash
+pip install huggingface_hub
+```
+
+Download the complete `save_dir` model inventory:
+
+```bash
+hf download yahuiwei123/MacaqueNormative-models \
+  --repo-type model \
+  --local-dir pretrained/save_dir \
+  --max-workers 8
+```
+
+For a private repository, log in first or pass a token:
+
+```bash
+hf auth login
+
+hf download yahuiwei123/MacaqueNormative-models \
+  --repo-type model \
+  --local-dir pretrained/save_dir \
+  --token hf_your_token
+```
+
+To download only final inference models and the selected CV parameters:
+
+```bash
+hf download yahuiwei123/MacaqueNormative-models \
+  --repo-type model \
+  --local-dir pretrained/save_dir \
+  --include "*/full_data_model/**" "optimal_parameters_summary.csv"
+```
+
+The downloaded directory should preserve this layout:
+
+```text
+pretrained/save_dir/
+├── MBNA124/{L,R}/{metric}/full_data_model/model/
+├── M129/{L,R}/{metric}/full_data_model/model/
+├── M132/{L,R}/{metric}/full_data_model/model/
+├── Modalities/{L,R}/{metric}/full_data_model/model/
+├── subcort/{L,R}/{metric}/full_data_model/model/
+└── optimal_parameters_summary.csv
+```
+
+Quick sanity checks:
+
+```bash
+find pretrained/save_dir -path '*/full_data_model/model/*/regression_model.json' | wc -l
+find pretrained/save_dir -path '*/model/*/regression_model.json' -not -path '*/full_data_model/*' | wc -l
+test -f pretrained/save_dir/optimal_parameters_summary.csv
+```
+
+Expected counts for the complete model package are 3,734 final full-data models
+and 3,734 split/CV models. If you downloaded only final inference models, the
+first count should be 3,734 and the second count can be 0.
+
+When models are downloaded outside the default `save_dir`, pass `--save-dir` to
+commands that resolve models by atlas, hemisphere, and metric:
+
+```bash
+monkey-norm predict \
+  --save-dir pretrained/save_dir \
+  --atlas MBNA124 \
+  --hemi L \
+  --metric thickness \
+  --csv user_input.csv \
+  --out-dir results/predictions/MBNA124_L_thickness
+```
+
+Equivalent Python download:
+
+```python
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="yahuiwei123/MacaqueNormative-models",
+    repo_type="model",
+    local_dir="pretrained/save_dir",
+)
 ```
 
 ## Examples
