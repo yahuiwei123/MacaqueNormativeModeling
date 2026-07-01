@@ -171,7 +171,7 @@ monkey-norm predict \
 Pretrained BLR model parameters are distributed through Hugging Face Hub:
 
 ```text
-yahuiwei123/MacaqueNormative-models
+yhwei/MacaNorms
 ```
 
 Install the Hugging Face client if it is not already available:
@@ -183,7 +183,7 @@ pip install huggingface_hub
 Download the complete `save_dir` model inventory:
 
 ```bash
-hf download yahuiwei123/MacaqueNormative-models \
+hf download yhwei/MacaNorms \
   --repo-type model \
   --local-dir pretrained/save_dir \
   --max-workers 8
@@ -194,7 +194,7 @@ For a private repository, log in first or pass a token:
 ```bash
 hf auth login
 
-hf download yahuiwei123/MacaqueNormative-models \
+hf download yhwei/MacaNorms \
   --repo-type model \
   --local-dir pretrained/save_dir \
   --token hf_your_token
@@ -203,7 +203,7 @@ hf download yahuiwei123/MacaqueNormative-models \
 To download only final inference models and the selected CV parameters:
 
 ```bash
-hf download yahuiwei123/MacaqueNormative-models \
+hf download yhwei/MacaNorms \
   --repo-type model \
   --local-dir pretrained/save_dir \
   --include "*/full_data_model/**" "optimal_parameters_summary.csv"
@@ -252,7 +252,7 @@ Equivalent Python download:
 from huggingface_hub import snapshot_download
 
 snapshot_download(
-    repo_id="yahuiwei123/MacaqueNormative-models",
+    repo_id="yhwei/MacaNorms",
     repo_type="model",
     local_dir="pretrained/save_dir",
 )
