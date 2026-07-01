@@ -1,15 +1,10 @@
-# Core
+# Core dependencies
 numpy>=1.21
 pandas>=1.3
 scipy>=1.7
 scikit-learn>=1.0
 joblib>=1.1
 
-# BLR normative modeling (primary pipeline)
-# pcntoolkit>=1.1  (requires Python 3.10-3.12)
-
-# ComBat harmonization (preprocessing)
-# neuroHarmonize
-
-# Model download
-# huggingface_hub
+# Optional runtime dependencies:
+# pcntoolkit        # BLR training, prediction, fine-tuning
+# neuroHarmonize   # ComBat harmonization
