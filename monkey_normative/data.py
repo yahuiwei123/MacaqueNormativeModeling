@@ -113,17 +113,22 @@ def subcort_response_vars(
     df: pd.DataFrame,
     hemi: str,
     meta_cols: set[str],
-) -> tuple[str, ...]:
-    covariates = {"age"}
-    exclude = meta_cols | covariates | {
+    include_global_covariate: bool,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    covariates = ["age"]
+    if include_global_covariate:
+        covariates.extend(col for col in SUBCORT_GLOBAL_VARS if col in df.columns)
+
+    exclude = meta_cols | set(covariates) | {
         c for c in df.columns if str(c).startswith("global_")
     }
-    return tuple(
+    response_vars = tuple(
         c for c in df.columns
         if c not in exclude
         and pd.api.types.is_numeric_dtype(df[c])
         and str(c).startswith(f"subvol_{hemi}_")
     )
+    return tuple(covariates), response_vars
 
 
 def cortical_local_spec(
@@ -204,6 +209,7 @@ def subcort_local_spec(
     save_base: Path,
     hemi: str,
     use_harmonized: bool,
+    include_global_covariate: bool,
     meta_cols: set[str] = SPLIT_META_COLS,
     min_n: int = 30,
 ) -> DatasetSpec | None:
@@ -211,10 +217,12 @@ def subcort_local_spec(
     if not path.exists():
         return None
     df = read_clean_csv(path)
-    response_vars = subcort_response_vars(df, hemi, meta_cols)
+    covariates, response_vars = subcort_response_vars(
+        df, hemi, meta_cols, include_global_covariate
+    )
     if not response_vars:
         return None
-    filtered = filter_required_rows(df, ("age",), ("sex", "breed"), response_vars)
+    filtered = filter_required_rows(df, covariates, ("sex", "breed"), response_vars)
     if len(filtered) < min_n:
         return None
     return DatasetSpec(
@@ -223,7 +231,7 @@ def subcort_local_spec(
         metric="volume",
         data_path=path,
         save_dir=save_base / "subcort" / hemi / "volume",
-        covariates=("age",),
+        covariates=covariates,
         batch_effects=("sex", "breed"),
         response_vars=response_vars,
         n_samples=len(filtered),
@@ -305,7 +313,15 @@ def iter_cv_specs(
                         specs.append(gspec)
 
     for hemi in HEMI_LIST:
-        spec = subcort_local_spec(base_dir, save_base, hemi, use_harmonized, SPLIT_META_COLS, min_n)
+        spec = subcort_local_spec(
+            base_dir,
+            save_base,
+            hemi,
+            use_harmonized,
+            include_global_covariate,
+            SPLIT_META_COLS,
+            min_n,
+        )
         if spec:
             specs.append(spec)
         if include_global_models:
@@ -331,7 +347,13 @@ def spec_from_params_row(
     if atlas == "subcortical":
         if metric == "volume":
             return subcort_local_spec(
-                base_dir, save_base, hemi, use_harmonized, FULL_META_COLS, min_n
+                base_dir,
+                save_base,
+                hemi,
+                use_harmonized,
+                include_global_covariate,
+                FULL_META_COLS,
+                min_n,
             )
         return subcort_global_spec(base_dir, save_base, hemi, metric, use_harmonized, min_n)
 

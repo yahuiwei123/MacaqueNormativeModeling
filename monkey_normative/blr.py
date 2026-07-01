@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import itertools
 import json
 import os
@@ -84,7 +85,6 @@ def cross_validation_optimize(
     param_grid: dict[str, list[Any]] | None = None,
     random_state: int = 42,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
-    BLR, _, NormativeModel, NormData = _pcn()
     grid = param_grid or DEFAULT_PARAM_GRID
     names = list(grid)
     combos = list(itertools.product(*[grid[name] for name in names]))
@@ -99,51 +99,17 @@ def cross_validation_optimize(
             train_fold = data.iloc[train_idx]
             val_fold = data.iloc[val_idx]
             try:
-                norm_train = NormData.from_dataframe(
-                    name=f"cv_train_{fold}",
-                    dataframe=train_fold,
-                    covariates=covariates,
-                    batch_effects=batch_effects,
-                    response_vars=response_vars,
-                )
-                norm_val = NormData.from_dataframe(
-                    name=f"cv_val_{fold}",
-                    dataframe=val_fold,
-                    covariates=covariates,
-                    batch_effects=batch_effects,
-                    response_vars=response_vars,
-                )
-                basis = create_bspline_basis(
-                    train_fold[covariates[0]].values,
-                    params["nknots"],
-                    params["degree"],
-                    params["adaptive_knots"],
-                )
-                blr = BLR(
-                    name="cv_template",
-                    basis_function_mean=basis,
-                    fixed_effect=True,
-                    heteroskedastic=params["heteroskedastic"],
-                    warp_name=params["warp_name"],
-                )
-                model = NormativeModel(
-                    template_regression_model=blr,
-                    savemodel=False,
-                    evaluate_model=False,
-                    saveresults=False,
-                    saveplots=False,
-                    inscaler="standardize",
-                    outscaler="standardize",
-                )
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    result = model.fit_predict(norm_train, norm_val)
-                y_pred = _array_from_result_yhat(result)
-                y_true = np.asarray(norm_val.Y.to_numpy(), dtype=np.float64)
-                if y_pred.ndim == 1:
-                    y_pred = y_pred.reshape(-1, 1)
-                if y_true.ndim == 1:
-                    y_true = y_true.reshape(-1, 1)
+                    y_pred = _fit_predict_mean_fast(
+                        train_fold,
+                        val_fold,
+                        covariates,
+                        batch_effects,
+                        response_vars,
+                        params,
+                    )
+                y_true = val_fold[response_vars].to_numpy(dtype=np.float64)
                 expv = [
                     calculate_metrics(y_true[:, roi_idx], y_pred[:, roi_idx])["expv"]
                     for roi_idx in range(y_pred.shape[1])
@@ -188,6 +154,62 @@ def _make_model(params: dict[str, Any], age_values):
     return NormativeModel, blr
 
 
+def _fit_predict_mean_fast(
+    train_fold: pd.DataFrame,
+    val_fold: pd.DataFrame,
+    covariates: list[str],
+    batch_effects: list[str],
+    response_vars: list[str],
+    params: dict[str, Any],
+) -> np.ndarray:
+    """Fit BLR models and return posterior mean predictions without slow postprocessing."""
+    _, _, NormativeModel, NormData = _pcn()
+    with open(os.devnull, "w", encoding="utf-8") as devnull, contextlib.redirect_stdout(devnull):
+        norm_train = NormData.from_dataframe(
+            name="cv_train_fast",
+            dataframe=train_fold,
+            covariates=covariates,
+            batch_effects=batch_effects,
+            response_vars=response_vars,
+        )
+        norm_val = NormData.from_dataframe(
+            name="cv_val_fast",
+            dataframe=val_fold,
+            covariates=covariates,
+            batch_effects=batch_effects,
+            response_vars=response_vars,
+        )
+        _, blr = _make_model(params, train_fold[covariates[0]].values)
+        model = NormativeModel(
+            template_regression_model=blr,
+            savemodel=False,
+            evaluate_model=False,
+            saveresults=False,
+            saveplots=False,
+            inscaler="standardize",
+            outscaler="standardize",
+        )
+        model.register_data_info(norm_train)
+        model.preprocess(norm_train)
+        model.preprocess(norm_val)
+
+        for responsevar in response_vars:
+            resp_fit_data = norm_train.sel({"response_vars": responsevar})
+            X, be, be_maps, Y, _ = model.extract_data(resp_fit_data)
+            model[responsevar].fit(X, be, be_maps, Y)
+
+        yhat_scaled = np.zeros((len(val_fold), len(response_vars)), dtype=np.float64)
+        for idx, responsevar in enumerate(response_vars):
+            resp_val_data = norm_val.sel({"response_vars": responsevar})
+            X, be, _, _, _ = model.extract_data(resp_val_data)
+            yhat_scaled[:, idx] = model[responsevar].ys_s2(X.values, be.values)[0]
+
+    yhat = np.zeros_like(yhat_scaled)
+    for idx, responsevar in enumerate(response_vars):
+        yhat[:, idx] = model.outscalers[responsevar].inverse_transform(yhat_scaled[:, idx])
+    return yhat
+
+
 def train_cv_model(
     spec: DatasetSpec,
     n_folds: int = 5,
@@ -204,15 +226,36 @@ def train_cv_model(
     batch_effects = list(spec.batch_effects)
 
     spec.save_dir.mkdir(parents=True, exist_ok=True)
-    best_params, cv_df = cross_validation_optimize(
-        train,
-        covariates,
-        batch_effects,
-        response_vars,
-        n_folds=n_folds,
-        random_state=random_state,
+    cv_path = spec.save_dir / "cross_validation_results.csv"
+    expected_param_count = len(
+        list(itertools.product(*[DEFAULT_PARAM_GRID[name] for name in DEFAULT_PARAM_GRID]))
     )
-    cv_df.to_csv(spec.save_dir / "cross_validation_results.csv", index=False)
+    if cv_path.exists():
+        cv_df = pd.read_csv(cv_path)
+        valid = cv_df.dropna(subset=["mean_expv"])
+        if len(cv_df) >= expected_param_count and not valid.empty:
+            best_params = params_from_row(valid.sort_values("mean_expv", ascending=False).iloc[0])
+            print(f"Reusing existing CV grid: {cv_path}")
+        else:
+            best_params, cv_df = cross_validation_optimize(
+                train,
+                covariates,
+                batch_effects,
+                response_vars,
+                n_folds=n_folds,
+                random_state=random_state,
+            )
+            cv_df.to_csv(cv_path, index=False)
+    else:
+        best_params, cv_df = cross_validation_optimize(
+            train,
+            covariates,
+            batch_effects,
+            response_vars,
+            n_folds=n_folds,
+            random_state=random_state,
+        )
+        cv_df.to_csv(cv_path, index=False)
 
     norm_train = NormData.from_dataframe(
         name="train",
@@ -233,8 +276,8 @@ def train_cv_model(
     model = NormativeModel(
         template_regression_model=blr,
         savemodel=True,
-        evaluate_model=True,
-        saveresults=True,
+        evaluate_model=False,
+        saveresults=False,
         saveplots=saveplots,
         save_dir=str(spec.save_dir),
         inscaler="standardize",
@@ -274,6 +317,8 @@ def train_cv_model(
         "n_samples": len(df),
         "n_train": len(train),
         "n_test": len(test),
+        "covariates": covariates,
+        "batch_effects": batch_effects,
         "n_response_vars": len(response_vars),
         "best_params": best_params,
         "mean_expv": float(metrics_df["expv"].mean()),
@@ -339,6 +384,8 @@ def train_full_model(
     summary = {
         "label": spec.label,
         "n_samples": len(df),
+        "covariates": list(spec.covariates),
+        "batch_effects": list(spec.batch_effects),
         "n_response_vars": len(spec.response_vars),
         "params": params,
         "save_dir": str(save_dir),
@@ -352,19 +399,17 @@ def analyze_cv_results(save_base: Path) -> pd.DataFrame:
     rows = []
     save_base = Path(save_base)
     for csv_path in save_base.rglob("cross_validation_results.csv"):
-        parts = csv_path.parts
-        if "subcort" in parts:
-            idx = parts.index("subcort")
+        parts = csv_path.relative_to(save_base).parts
+        if parts[0] == "subcort":
             atlas = "subcortical"
-            hemi = parts[idx + 1]
-            metric = parts[idx + 2]
+            hemi = parts[1]
+            metric = parts[2]
             if metric.startswith("global_global_"):
                 metric = metric.replace("global_global_", "global_", 1)
         else:
-            idx = parts.index("save_dir")
-            atlas = parts[idx + 1]
-            hemi = parts[idx + 2]
-            metric = parts[idx + 3]
+            atlas = parts[0]
+            hemi = parts[1]
+            metric = parts[2]
         df = pd.read_csv(csv_path)
         valid = df.dropna(subset=["mean_expv"])
         if valid.empty:

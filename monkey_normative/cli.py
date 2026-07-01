@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 import sys
 
@@ -67,7 +68,7 @@ def command_inspect(args) -> int:
                 args.base_dir,
                 args.save_dir,
                 use_harmonized=args.full_harmonized,
-                include_global_covariate=args.full_include_global_covariate,
+                include_global_covariate=not args.full_no_global_covariate,
                 min_n=args.full_min_n,
             )
             specs = [spec for spec, _ in specs_rows]
@@ -119,6 +120,36 @@ def command_train_cv(args) -> int:
         print("Select exactly one spec, or pass --all.")
         print(f"Matching specs: {[s.label for s in specs[:20]]}")
         return 1
+    if args.resume:
+        before = len(specs)
+        specs = [spec for spec in specs if not cv_spec_complete(spec)]
+        print(f"Resume enabled: skipping {before - len(specs)} completed CV specs")
+    if args.jobs > 1 and len(specs) > 1:
+        failures = []
+        with ProcessPoolExecutor(max_workers=args.jobs) as executor:
+            futures = {
+                executor.submit(
+                    train_cv_job,
+                    spec,
+                    args.n_folds,
+                    args.test_size,
+                    args.random_state,
+                    args.saveplots,
+                ): spec
+                for spec in specs
+            }
+            for future in as_completed(futures):
+                spec = futures[future]
+                try:
+                    future.result()
+                    print(f"Completed CV model: {spec.label}")
+                except Exception as exc:
+                    failures.append((spec, exc))
+                    print(f"FAILED CV model: {spec.label}: {exc}", file=sys.stderr)
+        if failures:
+            print(f"CV failures: {len(failures)}", file=sys.stderr)
+            return 1
+        return 0
     for spec in specs:
         print(f"\nTraining CV model: {spec.label}")
         train_cv_model(
@@ -129,6 +160,40 @@ def command_train_cv(args) -> int:
             saveplots=args.saveplots,
         )
     return 0
+
+
+def cv_spec_complete(spec: DatasetSpec) -> bool:
+    return (
+        (spec.save_dir / "cross_validation_results.csv").exists()
+        and (spec.save_dir / "test_set_results_by_roi.csv").exists()
+        and (spec.save_dir / "training_summary.json").exists()
+    )
+
+
+def full_spec_complete(spec: DatasetSpec) -> bool:
+    model_dir = spec.expected_model_dir(full=True)
+    return (
+        (spec.save_dir / "full_data_model" / "full_training_summary.json").exists()
+        and len({p.parent.name for p in model_dir.glob("*/regression_model.json")})
+        == len(spec.response_vars)
+    )
+
+
+def train_cv_job(
+    spec: DatasetSpec,
+    n_folds: int,
+    test_size: float,
+    random_state: int,
+    saveplots: bool,
+) -> dict:
+    print(f"\nTraining CV model: {spec.label}")
+    return train_cv_model(
+        spec,
+        n_folds=n_folds,
+        test_size=test_size,
+        random_state=random_state,
+        saveplots=saveplots,
+    )
 
 
 def command_analyze_cv(args) -> int:
@@ -145,7 +210,7 @@ def command_train_full(args) -> int:
         args.base_dir,
         args.save_dir,
         use_harmonized=args.use_harmonized,
-        include_global_covariate=args.include_global_covariate,
+        include_global_covariate=not args.no_global_covariate,
         min_n=args.min_n,
     )
     specs_rows = [
@@ -159,6 +224,35 @@ def command_train_full(args) -> int:
         print("Select exactly one full model, or pass --all.")
         print(f"Matching specs: {[spec.label for spec, _ in specs_rows[:20]]}")
         return 1
+    if args.resume:
+        before = len(specs_rows)
+        specs_rows = [(spec, row) for spec, row in specs_rows if not full_spec_complete(spec)]
+        print(f"Resume enabled: skipping {before - len(specs_rows)} completed full-data specs")
+    if args.jobs > 1 and len(specs_rows) > 1:
+        failures = []
+        with ProcessPoolExecutor(max_workers=args.jobs) as executor:
+            futures = {
+                executor.submit(
+                    train_full_job,
+                    spec,
+                    row.to_dict(),
+                    args.saveplots,
+                    not args.no_evaluate,
+                ): spec
+                for spec, row in specs_rows
+            }
+            for future in as_completed(futures):
+                spec = futures[future]
+                try:
+                    future.result()
+                    print(f"Completed full-data model: {spec.label}")
+                except Exception as exc:
+                    failures.append((spec, exc))
+                    print(f"FAILED full-data model: {spec.label}: {exc}", file=sys.stderr)
+        if failures:
+            print(f"Full-data failures: {len(failures)}", file=sys.stderr)
+            return 1
+        return 0
     for spec, row in specs_rows:
         print(f"\nTraining full-data model: {spec.label}")
         train_full_model(
@@ -168,6 +262,21 @@ def command_train_full(args) -> int:
             evaluate_model=not args.no_evaluate,
         )
     return 0
+
+
+def train_full_job(
+    spec: DatasetSpec,
+    row: dict,
+    saveplots: bool,
+    evaluate_model: bool,
+) -> dict:
+    print(f"\nTraining full-data model: {spec.label}")
+    return train_full_model(
+        spec,
+        pd.Series(row),
+        saveplots=saveplots,
+        evaluate_model=evaluate_model,
+    )
 
 
 def resolved_model_arg(args) -> Path:
@@ -241,9 +350,15 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--no-global-covariate", action="store_true")
     inspect.add_argument("--min-n", type=int, default=30)
     inspect.add_argument("--full-harmonized", action="store_true")
-    inspect.add_argument("--full-include-global-covariate", action="store_true")
+    inspect.add_argument(
+        "--full-include-global-covariate",
+        dest="full_no_global_covariate",
+        action="store_false",
+        help=argparse.SUPPRESS,
+    )
+    inspect.add_argument("--full-no-global-covariate", action="store_true")
     inspect.add_argument("--full-min-n", type=int, default=100)
-    inspect.set_defaults(func=command_inspect)
+    inspect.set_defaults(func=command_inspect, full_no_global_covariate=False)
 
     combat = sub.add_parser("combat", help="Apply ComBat harmonization")
     combat.add_argument("--base-dir", type=path_arg, default=DEFAULT_HEALTHY_DATA_DIR)
@@ -266,6 +381,8 @@ def build_parser() -> argparse.ArgumentParser:
     train_cv.add_argument("--n-folds", type=int, default=5)
     train_cv.add_argument("--test-size", type=float, default=0.2)
     train_cv.add_argument("--random-state", type=int, default=42)
+    train_cv.add_argument("--jobs", type=int, default=1)
+    train_cv.add_argument("--resume", action="store_true")
     train_cv.add_argument("--saveplots", action="store_true")
     train_cv.set_defaults(func=command_train_cv)
 
@@ -281,11 +398,19 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--hemi")
     full.add_argument("--metric")
     full.add_argument("--use-harmonized", action="store_true")
-    full.add_argument("--include-global-covariate", action="store_true")
+    full.add_argument(
+        "--include-global-covariate",
+        dest="no_global_covariate",
+        action="store_false",
+        help=argparse.SUPPRESS,
+    )
+    full.add_argument("--no-global-covariate", action="store_true")
     full.add_argument("--min-n", type=int, default=100)
+    full.add_argument("--jobs", type=int, default=1)
+    full.add_argument("--resume", action="store_true")
     full.add_argument("--saveplots", action="store_true")
     full.add_argument("--no-evaluate", action="store_true")
-    full.set_defaults(func=command_train_full)
+    full.set_defaults(func=command_train_full, no_global_covariate=False)
 
     for name, help_text, func in (
         ("predict", "Predict deviations with a trained full_data_model", command_predict),

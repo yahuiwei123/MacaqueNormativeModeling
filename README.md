@@ -428,15 +428,16 @@ This is the **final inference model**. It uses the selected parameters from
 
 For user prediction and deviation scoring, prefer `full_data_model`.
 
-Compatibility note: the legacy CV code includes the corresponding `global_*`
-metric as an additional covariate for cortical local ROI models. The legacy
-full-data training code uses `age` only by default. This toolkit preserves that
-behavior:
+Compatibility note: local ROI models include the corresponding global measure
+as an additional covariate by default. Cortical mappings are
+`global_mean_thickness`, `global_total_gmarea`, `global_total_cortvol`,
+`global_mean_curvature`, and `global_mean_sulc`; subcortical volume models use
+`global_estimated_ICV_mm3` and `global_total_subcortical_vol_mm3`.
 
 - `train-cv` includes local global covariates by default; use
   `--no-global-covariate` to disable.
-- `train-full` does not include local global covariates by default; use
-  `--include-global-covariate` to enable.
+- `train-full` also includes local global covariates by default; use
+  `--no-global-covariate` to disable.
 
 ## Pretrained Model Inventory
 

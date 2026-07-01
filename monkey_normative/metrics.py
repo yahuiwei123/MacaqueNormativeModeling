@@ -8,7 +8,7 @@ def calculate_metrics(y_true, y_pred) -> dict[str, float]:
     """Compute regression metrics used by the legacy BLR scripts."""
     y_true = np.asarray(y_true, dtype=np.float64)
     y_pred = np.asarray(y_pred, dtype=np.float64)
-    mask = ~np.isnan(y_true) & ~np.isnan(y_pred)
+    mask = np.isfinite(y_true) & np.isfinite(y_pred)
     y_true = y_true[mask]
     y_pred = y_pred[mask]
 
